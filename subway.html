@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>서울 지하철 일일 통합 대시보드</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: { fontFamily: { sans: ['Noto Sans KR', 'sans-serif'] } } }
+    }
+  </script>
+
+  <style>
+    /* === 전역 === */
+    *, body { font-family: 'Noto Sans KR', sans-serif; }
+    body { background: #080D18; color: #F1F5F9; }
+
+    /* === 스크롤바 === */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #111827; }
+    ::-webkit-scrollbar-thumb { background: #3B82F6; border-radius: 99px; }
+
+    /* === 카드 === */
+    .glass-card {
+      background: linear-gradient(145deg, #141E30, #0F172A);
+      border: 1px solid rgba(255,255,255,0.06);
+      transition: border-color .3s, box-shadow .3s;
+    }
+    .glass-card:hover { border-color: rgba(59,130,246,.4); box-shadow: 0 0 24px rgba(59,130,246,.1); }
+
+    /* === 탭 === */
+    .tab-btn {
+      padding: 9px 18px; border-radius: 10px;
+      font-size: 13px; font-weight: 500; color: #64748B;
+      cursor: pointer; transition: all .2s; white-space: nowrap;
+    }
+    .tab-btn:hover { background: #1E293B; color: #E2E8F0; }
+    .tab-btn.on {
+      background: linear-gradient(135deg,#2563EB,#4F46E5);
+      color: #fff; box-shadow: 0 4px 16px rgba(37,99,235,.45);
+    }
+    .panel { display: none; }
+    .panel.on { display: block; }
+
+    /* === KPI 그라데이션 텍스트 === */
+    .grad-blue   { background: linear-gradient(135deg,#60A5FA,#818CF8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .grad-purple { background: linear-gradient(135deg,#C084FC,#EC4899); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .grad-green  { background: linear-gradient(135deg,#34D399,#059669); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .grad-yellow { background: linear-gradient(135deg,#FBBF24,#F59E0B); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+
+    /* === 배지 === */
+    .bdg { display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:99px; }
+    .bdg-blue   { background:#1E3A5F; color:#60A5FA; border:1px solid #2563EB; }
+    .bdg-green  { background:#14532D; color:#4ADE80; border:1px solid #16A34A; }
+    .bdg-yellow { background:#451A03; color:#FCD34D; border:1px solid #D97706; }
+    .bdg-red    { background:#450A0A; color:#FCA5A5; border:1px solid #DC2626; }
+
+    /* === 테이블 === */
+    .tbl th {
+      background:#0F172A; color:#475569; font-size:11px; font-weight:700;
+      letter-spacing:.06em; text-transform:uppercase; padding:11px 14px;
+      cursor:pointer; user-select:none; white-space:nowrap;
+    }
+    .tbl th:hover { color:#60A5FA; }
+    .tbl td { padding:11px 14px; border-bottom:1px solid #1E293B; font-size:13px; color:#CBD5E1; }
+    .tbl tr:hover td { background:#0B1120; }
+
+    /* === 인풋/셀렉트 === */
+    .inp {
+      background:#0F172A; border:1px solid #1E293B; color:#E2E8F0;
+      padding:9px 14px 9px 40px; border-radius:10px; font-size:13px;
+      width:100%; transition:border-color .2s;
+    }
+    .inp:focus { outline:none; border-color:#3B82F6; box-shadow:0 0 0 3px rgba(59,130,246,.12); }
+    .inp::placeholder { color:#475569; }
+    .sel {
+      background:#0F172A; border:1px solid #1E293B; color:#E2E8F0;
+      padding:9px 14px; border-radius:10px; font-size:13px; cursor:pointer;
+    }
+    .sel:focus { outline:none; border-color:#3B82F6; }
+
+    /* === 노선 칩 === */
+    .lchip {
+      width:26px; height:26px; border-radius:50%;
+      display:inline-flex; align-items:center; justify-content:center;
+      font-size:11px; font-weight:800; color:#fff; flex-shrink:0;
+    }
+
+    /* === 프로그레스 === */
+    .pbar { height:5px; border-radius:99px; background:#1E293B; overflow:hidden; }
+    .pfill { height:100%; border-radius:99px; transition:width .8s ease; }
+
+    /* === LIVE 펄스 === */
+    @keyframes live-pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+    .live-dot { animation:live-pulse 1.4s ease-in-out infinite; }
+
+    /* === 랭킹 메달 === */
+    .medal-1 { color:#FFD700; }
+    .medal-2 { color:#C0C0C0; }
+    .medal-3 { color:#CD7F32; }
+
+    /* === 반응형 === */
+    @media(max-width:640px){
+      .tab-btn{padding:7px 10px;font-size:12px;}
+      canvas{max-height:260px!important;}
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+
+<!-- ══════════════════════ HEADER ══════════════════════ -->
+<header class="sticky top-0 z-50" style="background:rgba(8,13,24,.96);backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,.05);">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+
+    <!-- 브랜드 -->
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+           style="background:linear-gradient(135deg,#2563EB,#4F46E5);">
+        <i class="fa-solid fa-train-subway text-white"></i>
+      </div>
+      <div>
+        <h1 class="text-base font-bold text-white leading-tight">서울 지하철 통합 대시보드</h1>
+        <p class="text-xs text-slate-500">Air Quality &amp; Ridership Monitor · Mock Data (SQL Schema)</p>
+      </div>
+    </div>
+
+    <!-- 메타 정보 -->
+    <div class="flex items-center gap-5">
+      <div class="flex items-center gap-2">
+        <span class="live-dot w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+        <span class="text-xs text-emerald-400 font-semibold">LIVE</span>
+      </div>
+      <div class="text-right">
+        <p class="text-xs text-slate-500">마지막 업데이트</p>
+        <p class="text-sm font-semibold text-slate-300" id="nowTime">—</p>
+      </div>
+      <div class="text-right hidden sm:block">
+        <p class="text-xs text-slate-500">기준일</p>
+        <p class="text-sm font-semibold text-blue-400" id="todayDate">—</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 탭 -->
+  <div class="max-w-7xl mx-auto px-4 pb-2 flex gap-2 overflow-x-auto">
+    <button class="tab-btn on" onclick="switchTab('line')">
+      <i class="fa-solid fa-chart-bar mr-1"></i>호선별 환경 요약
+    </button>
+    <button class="tab-btn" onclick="switchTab('station')">
+      <i class="fa-solid fa-magnifying-glass mr-1"></i>역별 상세 조회
+    </button>
+    <button class="tab-btn" onclick="switchTab('top20')">
+      <i class="fa-solid fa-ranking-star mr-1"></i>혼잡도 Top 20
+    </button>
+  </div>
+</header>
+
+<!-- ══════════════════════ MAIN ══════════════════════ -->
+<main class="max-w-7xl mx-auto px-4 py-5 space-y-5">
+
+  <!-- ── KPI 공통 카드 ── -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    <div class="glass-card rounded-2xl p-5">
+      <div class="flex justify-between items-center mb-2">
+        <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">전체 평균 PM10</p>
+        <i class="fa-solid fa-wind text-blue-400 text-sm"></i>
+      </div>
+      <p class="text-3xl font-black grad-blue" id="kpiPM10">—</p>
+      <p class="text-xs text-slate-500 mt-1">㎍/㎥ · 호선 평균</p>
+    </div>
+    <div class="glass-card rounded-2xl p-5">
+      <div class="flex justify-between items-center mb-2">
+        <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">전체 평균 PM2.5</p>
+        <i class="fa-solid fa-smog text-purple-400 text-sm"></i>
+      </div>
+      <p class="text-3xl font-black grad-purple" id="kpiPM25">—</p>
+      <p class="text-xs text-slate-500 mt-1">㎍/㎥ · 초미세먼지</p>
+    </div>
+    <div class="glass-card rounded-2xl p-5">
+      <div class="flex justify-between items-center mb-2">
+        <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">전체 평균 CO₂</p>
+        <i class="fa-solid fa-leaf text-emerald-400 text-sm"></i>
+      </div>
+      <p class="text-3xl font-black grad-green" id="kpiCO2">—</p>
+      <p class="text-xs text-slate-500 mt-1">ppm · 이산화탄소</p>
+    </div>
+    <div class="glass-card rounded-2xl p-5">
+      <div class="flex justify-between items-center mb-2">
+        <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">모니터링 역 수</p>
+        <i class="fa-solid fa-location-dot text-amber-400 text-sm"></i>
+      </div>
+      <p class="text-3xl font-black grad-yellow" id="kpiStations">—</p>
+      <p class="text-xs text-slate-500 mt-1">개 역 · 실시간 집계</p>
+    </div>
+  </div>
+
+  <!-- ══════════════ PANEL 1 : 호선별 환경 요약 ══════════════ -->
+  <div id="panel-line" class="panel on space-y-5">
+
+    <!-- 호선 요약 카드 -->
+    <div>
+      <div class="flex items-center gap-2 mb-3">
+        <h2 class="text-sm font-bold text-white">호선별 공기질 현황</h2>
+        <span class="text-xs text-slate-500">· SQL Query 3 결과 기반</span>
+      </div>
+      <div id="lineCards" class="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2"></div>
+    </div>
+
+    <!-- 차트 2열 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div class="glass-card rounded-2xl p-5">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-chart-column text-blue-400"></i> 미세먼지 비교 (PM10 / PM2.5)
+          </h3>
+          <span class="text-xs text-slate-500">㎍/㎥</span>
+        </div>
+        <div style="height:270px;"><canvas id="chartDust"></canvas></div>
+      </div>
+      <div class="glass-card rounded-2xl p-5">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-leaf text-emerald-400"></i> 이산화탄소 비교 (CO₂)
+          </h3>
+          <span class="text-xs text-slate-500">ppm</span>
+        </div>
+        <div style="height:270px;"><canvas id="chartCO2"></canvas></div>
+      </div>
+    </div>
+
+    <!-- 호선별 상세 테이블 -->
+    <div class="glass-card rounded-2xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-800">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-table-list text-indigo-400"></i> 호선별 수치 상세표
+          <span class="text-xs text-slate-500 font-normal ml-1">· GROUP BY 노선명</span>
+        </h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="tbl w-full">
+          <thead><tr>
+            <th class="text-left">호선</th>
+            <th class="text-right">PM10 (㎍/㎥)</th>
+            <th class="text-right">PM2.5 (㎍/㎥)</th>
+            <th class="text-right">CO₂ (ppm)</th>
+            <th class="text-right">총 승하차 인원</th>
+            <th class="text-center">PM10 상태</th>
+            <th class="text-center">CO₂ 상태</th>
+          </tr></thead>
+          <tbody id="lineTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ PANEL 2 : 역별 상세 조회 ══════════════ -->
+  <div id="panel-station" class="panel space-y-5">
+
+    <!-- 검색 필터 -->
+    <div class="glass-card rounded-2xl p-5">
+      <div class="flex items-center gap-2 mb-4">
+        <h2 class="text-sm font-bold text-white">역별 상세 조회</h2>
+        <span class="text-xs text-slate-500">· SQL Query 2 결과 기반 (총승하차인원 + 미세먼지 + CO₂)</span>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-3">
+        <div class="relative flex-1">
+          <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+          <input id="srchInput" class="inp" placeholder="역명 검색 (예: 강남, 홍대입구, 여의도...)" oninput="applyFilter()"/>
+        </div>
+        <select class="sel" id="srchLine" onchange="applyFilter()">
+          <option value="">전체 호선</option>
+          <option value="1호선">1호선</option><option value="2호선">2호선</option>
+          <option value="3호선">3호선</option><option value="4호선">4호선</option>
+          <option value="5호선">5호선</option><option value="6호선">6호선</option>
+          <option value="7호선">7호선</option><option value="8호선">8호선</option>
+          <option value="9호선">9호선</option>
+        </select>
+        <select class="sel" id="srchSort" onchange="applyFilter()">
+          <option value="passengers">승하차 인원순</option>
+          <option value="pm10">PM10 높은순</option>
+          <option value="co2">CO₂ 높은순</option>
+          <option value="name">역명 가나다순</option>
+        </select>
+      </div>
+      <p class="text-xs text-slate-500 mt-3">검색 결과: <span id="srchCount" class="text-blue-400 font-semibold">—</span>개 역</p>
+    </div>
+
+    <!-- 역 상세 팝업 카드 -->
+    <div id="stDetail" class="hidden glass-card rounded-2xl p-5" style="border-color:#2563EB;">
+      <div class="flex items-start justify-between mb-4">
+        <div class="flex items-center gap-3">
+          <div id="dtChip" class="lchip text-base w-11 h-11">—</div>
+          <div>
+            <h3 id="dtName" class="text-lg font-bold text-white">—</h3>
+            <p id="dtLine" class="text-xs text-slate-400">—</p>
+          </div>
+        </div>
+        <button onclick="closeDetail()" class="text-slate-500 hover:text-white">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div class="bg-slate-900 rounded-xl p-3 text-center">
+          <i class="fa-solid fa-people-group text-amber-400 mb-1"></i>
+          <p class="text-xs text-slate-400">총 승하차 인원</p>
+          <p id="dtPass" class="text-lg font-bold text-amber-400">—</p>
+          <p class="text-xs text-slate-500">명 / 일</p>
+        </div>
+        <div class="bg-slate-900 rounded-xl p-3 text-center">
+          <i class="fa-solid fa-wind text-blue-400 mb-1"></i>
+          <p class="text-xs text-slate-400">미세먼지 PM10</p>
+          <p id="dtPM10" class="text-lg font-bold text-blue-400">—</p>
+          <p class="text-xs text-slate-500">㎍/㎥</p>
+        </div>
+        <div class="bg-slate-900 rounded-xl p-3 text-center">
+          <i class="fa-solid fa-smog text-purple-400 mb-1"></i>
+          <p class="text-xs text-slate-400">초미세먼지 PM2.5</p>
+          <p id="dtPM25" class="text-lg font-bold text-purple-400">—</p>
+          <p class="text-xs text-slate-500">㎍/㎥</p>
+        </div>
+        <div class="bg-slate-900 rounded-xl p-3 text-center">
+          <i class="fa-solid fa-leaf text-emerald-400 mb-1"></i>
+          <p class="text-xs text-slate-400">이산화탄소 CO₂</p>
+          <p id="dtCO2" class="text-lg font-bold text-emerald-400">—</p>
+          <p class="text-xs text-slate-500">ppm</p>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <div>
+          <div class="flex justify-between text-xs text-slate-400 mb-1">
+            <span>PM10 농도 수준</span><span id="dtPM10Lbl" class="font-semibold">—</span>
+          </div>
+          <div class="pbar"><div id="dtPM10Bar" class="pfill" style="width:0%;background:#3B82F6;"></div></div>
+        </div>
+        <div>
+          <div class="flex justify-between text-xs text-slate-400 mb-1">
+            <span>CO₂ 농도 수준</span><span id="dtCO2Lbl" class="font-semibold">—</span>
+          </div>
+          <div class="pbar"><div id="dtCO2Bar" class="pfill" style="width:0%;background:#10B981;"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 역별 테이블 -->
+    <div class="glass-card rounded-2xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="tbl w-full">
+          <thead><tr>
+            <th class="text-left" onclick="toggleSort('name')">역명 <i class="fa-solid fa-sort text-slate-700 ml-1"></i></th>
+            <th class="text-center">호선</th>
+            <th class="text-right" onclick="toggleSort('passengers')">승하차 인원 <i class="fa-solid fa-sort text-slate-700 ml-1"></i></th>
+            <th class="text-right" onclick="toggleSort('pm10')">PM10 <i class="fa-solid fa-sort text-slate-700 ml-1"></i></th>
+            <th class="text-right" onclick="toggleSort('pm25')">PM2.5 <i class="fa-solid fa-sort text-slate-700 ml-1"></i></th>
+            <th class="text-right" onclick="toggleSort('co2')">CO₂ <i class="fa-solid fa-sort text-slate-700 ml-1"></i></th>
+            <th class="text-center">공기 상태</th>
+            <th class="text-center">상세보기</th>
+          </tr></thead>
+          <tbody id="stTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ PANEL 3 : 혼잡도 Top 20 ══════════════ -->
+  <div id="panel-top20" class="panel space-y-5">
+
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white flex items-center gap-2">
+        <i class="fa-solid fa-ranking-star text-amber-400"></i> 승하차 인원 상위 20개 역 · 미세먼지 분석
+        <span class="text-xs text-slate-500 font-normal">· SQL Query 1 결과 기반</span>
+      </h2>
+      <div class="flex items-center gap-3 text-xs">
+        <span class="bdg bdg-red">WHO PM10 기준: 15㎍/㎥</span>
+        <span class="bdg bdg-yellow">환경부 '나쁨': 81㎍/㎥</span>
+      </div>
+    </div>
+
+    <!-- Top20 차트 -->
+    <div class="glass-card rounded-2xl p-5">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-bars-staggered text-blue-400"></i> 역별 미세먼지(PM10 / PM2.5) 순위 차트
+        </h3>
+        <div class="flex items-center gap-4 text-xs text-slate-400">
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-blue-500 opacity-80"></span> PM10</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-purple-500 opacity-80"></span> PM2.5</span>
+          <span class="flex items-center gap-1 text-red-400"><span class="inline-block w-px h-3 border-l-2 border-dashed border-red-400"></span> WHO 기준</span>
+        </div>
+      </div>
+      <div style="height:500px;"><canvas id="chartTop20"></canvas></div>
+    </div>
+
+    <!-- 랭킹 카드 목록 -->
+    <div>
+      <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2">
+        <i class="fa-solid fa-list-ol text-indigo-400"></i> 상세 랭킹 (승하차 인원 기준)
+      </h3>
+      <div id="top20Cards" class="space-y-2"></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ══════════════════════ FOOTER ══════════════════════ -->
+<footer class="mt-10 border-t border-slate-800/60 py-5">
+  <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-600">
+    <span><i class="fa-solid fa-database mr-1"></i>데이터 출처: 서울 열린데이터광장 · 서울교통공사 공공데이터포털 (현재 Mock Data 적용)</span>
+    <span>© 2025 Seoul Subway Dashboard · Chart.js + Tailwind CSS</span>
+  </div>
+</footer>
+
+<!-- ══════════════════════ SCRIPT ══════════════════════ -->
+<script>
+/* =================================================================
+   ■ MOCK DATA
+   SQL 쿼리 3개(호선별 요약 / 역별 전체 / 승하차 Top20)에 맞춘
+   현실적인 샘플 데이터 (서울교통공사 실제 수치 참고)
+================================================================= */
+
+// ── 호선 메타 (공식 색상) ──
+const LINE = {
+  '1호선': { n:1, color:'#0052A4' },
+  '2호선': { n:2, color:'#00A84D' },
+  '3호선': { n:3, color:'#EF7C1C' },
+  '4호선': { n:4, color:'#00A4E3' },
+  '5호선': { n:5, color:'#996CAC' },
+  '6호선': { n:6, color:'#CD7C2F' },
+  '7호선': { n:7, color:'#747F00' },
+  '8호선': { n:8, color:'#E6186C' },
+  '9호선': { n:9, color:'#BDB092' },
+};
+
+// ── SQL Query 3 결과: GROUP BY 노선명 ──
+// SELECT 노선명, AVG(미세먼지), AVG(초미세먼지), AVG(이산화탄소), SUM(총승하차인원)
+const lineRows = [
+  { line:'1호선', pm10:46, pm25:22, co2: 975, passengers:2841200 },
+  { line:'2호선', pm10:63, pm25:32, co2:1148, passengers:5623400 },
+  { line:'3호선', pm10:39, pm25:18, co2: 874, passengers:1985300 },
+  { line:'4호선', pm10:56, pm25:28, co2:1027, passengers:2134600 },
+  { line:'5호선', pm10:72, pm25:38, co2:1275, passengers:2467800 },
+  { line:'6호선', pm10:50, pm25:24, co2:1054, passengers:1123400 },
+  { line:'7호선', pm10:68, pm25:34, co2:1188, passengers:2312500 },
+  { line:'8호선', pm10:43, pm25:21, co2: 912, passengers: 645300 },
+  { line:'9호선', pm10:36, pm25:17, co2: 826, passengers:1234700 },
+];
+
+// ── SQL Query 2 결과: 역별 총승하차인원 + 미세먼지 + CO₂ ──
+// SELECT 역명, SUM(총승하차인원), AVG(미세먼지), AVG(이산화탄소)
+// (PM2.5 추가 포함)
+const stationRows = [
+  { name:'강남',          line:'2호선', passengers:182340, pm10:73, pm25:38, co2:1285 },
+  { name:'홍대입구',      line:'2호선', passengers:168200, pm10:69, pm25:35, co2:1218 },
+  { name:'잠실',          line:'2호선', passengers:159800, pm10:66, pm25:33, co2:1182 },
+  { name:'신림',          line:'2호선', passengers:148600, pm10:62, pm25:31, co2:1155 },
+  { name:'구로디지털단지', line:'2호선', passengers:143100, pm10:60, pm25:30, co2:1108 },
+  { name:'사당',          line:'2호선', passengers:139400, pm10:58, pm25:28, co2:1085 },
+  { name:'신도림',        line:'2호선', passengers:136200, pm10:56, pm25:27, co2:1062 },
+  { name:'합정',          line:'2호선', passengers: 96800, pm10:65, pm25:32, co2:1168 },
+  { name:'건대입구',      line:'2호선', passengers: 88400, pm10:61, pm25:30, co2:1144 },
+  { name:'서울역',        line:'1호선', passengers:133400, pm10:49, pm25:23, co2: 994 },
+  { name:'종로3가',       line:'1호선', passengers:122600, pm10:45, pm25:21, co2: 963 },
+  { name:'시청',          line:'1호선', passengers: 76300, pm10:44, pm25:21, co2: 956 },
+  { name:'동대문역사문화공원',line:'4호선',passengers:119800,pm10:57,pm25:28,co2:1034},
+  { name:'명동',          line:'4호선', passengers:116200, pm10:54, pm25:26, co2:1016 },
+  { name:'혜화',          line:'4호선', passengers: 62400, pm10:51, pm25:24, co2: 988 },
+  { name:'충무로',        line:'3호선', passengers:113600, pm10:41, pm25:19, co2: 892 },
+  { name:'교대',          line:'3호선', passengers:110400, pm10:40, pm25:18, co2: 882 },
+  { name:'고속터미널',    line:'3호선', passengers:107800, pm10:38, pm25:17, co2: 864 },
+  { name:'압구정',        line:'3호선', passengers: 54200, pm10:37, pm25:17, co2: 851 },
+  { name:'공덕',          line:'5호선', passengers: 94300, pm10:71, pm25:37, co2:1252 },
+  { name:'여의도',        line:'5호선', passengers: 91600, pm10:74, pm25:40, co2:1294 },
+  { name:'마포',          line:'5호선', passengers: 89200, pm10:70, pm25:36, co2:1228 },
+  { name:'왕십리',        line:'5호선', passengers: 73800, pm10:72, pm25:38, co2:1265 },
+  { name:'천호',          line:'5호선', passengers: 69400, pm10:75, pm25:41, co2:1318 },
+  { name:'장한평',        line:'5호선', passengers: 59700, pm10:68, pm25:34, co2:1205 },
+  { name:'이태원',        line:'6호선', passengers: 99500, pm10:51, pm25:25, co2:1064 },
+  { name:'상수',          line:'6호선', passengers: 42300, pm10:48, pm25:23, co2:1032 },
+  { name:'노원',          line:'7호선', passengers: 85600, pm10:65, pm25:33, co2:1178 },
+  { name:'도봉산',        line:'7호선', passengers: 63800, pm10:59, pm25:29, co2:1094 },
+  { name:'가산디지털단지', line:'7호선', passengers: 78200, pm10:67, pm25:34, co2:1196 },
+  { name:'암사',          line:'8호선', passengers: 46200, pm10:44, pm25:21, co2: 924 },
+  { name:'몽촌토성',      line:'8호선', passengers: 42400, pm10:42, pm25:20, co2: 904 },
+  { name:'석촌',          line:'8호선', passengers: 39400, pm10:40, pm25:19, co2: 886 },
+  { name:'언주',          line:'9호선', passengers: 36200, pm10:35, pm25:16, co2: 814 },
+  { name:'봉은사',        line:'9호선', passengers: 32800, pm10:33, pm25:14, co2: 793 },
+  { name:'신논현',        line:'9호선', passengers: 58400, pm10:37, pm25:17, co2: 838 },
+];
+
+/* =================================================================
+   ■ 유틸리티
+================================================================= */
+const fmt = n => n.toLocaleString('ko-KR');
+
+// PM10 상태 (환경부 기준)
+function pmStatus(v) {
+  if (v <= 30) return { label:'좋음',    cls:'bdg-blue',   color:'#60A5FA' };
+  if (v <= 50) return { label:'보통',    cls:'bdg-green',  color:'#4ADE80' };
+  if (v <= 80) return { label:'나쁨',    cls:'bdg-yellow', color:'#FCD34D' };
+  return              { label:'매우나쁨',cls:'bdg-red',    color:'#FCA5A5' };
+}
+// CO₂ 상태
+function co2Status(v) {
+  if (v <= 700)  return { label:'청정', cls:'bdg-blue',   color:'#60A5FA' };
+  if (v <= 1000) return { label:'양호', cls:'bdg-green',  color:'#4ADE80' };
+  if (v <= 1500) return { label:'주의', cls:'bdg-yellow', color:'#FCD34D' };
+  return               { label:'나쁨',  cls:'bdg-red',    color:'#FCA5A5' };
+}
+
+/* =================================================================
+   ■ 시간 표시
+================================================================= */
+function initTime() {
+  const now = new Date();
+  document.getElementById('nowTime').textContent =
+    now.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('todayDate').textContent =
+    `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일`;
+  setInterval(()=>{
+    document.getElementById('nowTime').textContent =
+      new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+  }, 60000);
+}
+
+/* =================================================================
+   ■ KPI
+================================================================= */
+function renderKPI() {
+  const avg = a => Math.round(a.reduce((s,v)=>s+v,0)/a.length);
+  document.getElementById('kpiPM10').textContent     = avg(lineRows.map(d=>d.pm10));
+  document.getElementById('kpiPM25').textContent     = avg(lineRows.map(d=>d.pm25));
+  document.getElementById('kpiCO2').textContent      = fmt(avg(lineRows.map(d=>d.co2)));
+  document.getElementById('kpiStations').textContent = stationRows.length;
+}
+
+/* =================================================================
+   ■ PANEL 1 – 호선별 환경 요약
+================================================================= */
+function renderLineCards() {
+  document.getElementById('lineCards').innerHTML = lineRows.map(d => {
+    const m = LINE[d.line], st = pmStatus(d.pm10);
+    return `
+      <div class="glass-card rounded-xl p-3 text-center">
+        <div class="lchip mx-auto mb-2" style="background:${m.color};width:32px;height:32px;">${m.n}</div>
+        <p class="text-xs text-slate-400 mb-1 font-medium">${d.line}</p>
+        <div class="text-xs space-y-0.5">
+          <div class="flex justify-between"><span class="text-slate-500">PM10</span><span class="font-bold" style="color:${st.color}">${d.pm10}</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">PM2.5</span><span class="font-bold text-purple-400">${d.pm25}</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">CO₂</span><span class="font-bold text-emerald-400">${fmt(d.co2)}</span></div>
+        </div>
+        <span class="bdg ${st.cls} mt-2 inline-block">${st.label}</span>
+      </div>`;
+  }).join('');
+}
+
+function renderLineTable() {
+  document.getElementById('lineTbody').innerHTML = lineRows.map(d => {
+    const m = LINE[d.line], stPM = pmStatus(d.pm10), stCO2 = co2Status(d.co2);
+    return `
+      <tr>
+        <td><div class="flex items-center gap-2">
+          <span class="lchip" style="background:${m.color};width:22px;height:22px;font-size:10px;">${m.n}</span>
+          <span class="font-semibold text-slate-200">${d.line}</span>
+        </div></td>
+        <td class="text-right font-mono font-bold" style="color:${stPM.color}">${d.pm10}</td>
+        <td class="text-right font-mono text-purple-400">${d.pm25}</td>
+        <td class="text-right font-mono text-emerald-400">${fmt(d.co2)}</td>
+        <td class="text-right font-mono text-amber-400">${fmt(d.passengers)}</td>
+        <td class="text-center"><span class="bdg ${stPM.cls}">${stPM.label}</span></td>
+        <td class="text-center"><span class="bdg ${stCO2.cls}">${stCO2.label}</span></td>
+      </tr>`;
+  }).join('');
+}
+
+function renderLineCharts() {
+  const labels = lineRows.map(d=>d.line);
+  const bgColors = lineRows.map(d=>LINE[d.line].color);
+  const opts = {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{
+      legend:{labels:{color:'#94A3B8',font:{size:11}}},
+      tooltip:{backgroundColor:'#1E293B',titleColor:'#F1F5F9',bodyColor:'#CBD5E1',borderColor:'#334155',borderWidth:1}
+    },
+    scales:{
+      x:{ticks:{color:'#64748B',font:{size:11}},grid:{color:'#1E293B'}},
+      y:{ticks:{color:'#64748B',font:{size:11}},grid:{color:'#1E293B'}}
+    }
+  };
+
+  // PM10 / PM2.5
+  new Chart(document.getElementById('chartDust'),{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        { label:'PM10 (㎍/㎥)', data:lineRows.map(d=>d.pm10),
+          backgroundColor:bgColors.map(c=>c+'BB'), borderColor:bgColors, borderWidth:2, borderRadius:6 },
+        { label:'PM2.5 (㎍/㎥)', data:lineRows.map(d=>d.pm25),
+          backgroundColor:'rgba(167,139,250,.55)', borderColor:'#A78BFA', borderWidth:2, borderRadius:6 }
+      ]
+    },
+    options:{...opts}
+  });
+
+  // CO₂
+  new Chart(document.getElementById('chartCO2'),{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{ label:'CO₂ (ppm)', data:lineRows.map(d=>d.co2),
+        backgroundColor:bgColors.map(c=>c+'88'), borderColor:bgColors, borderWidth:2, borderRadius:6 }]
+    },
+    options:{...opts, scales:{...opts.scales, y:{...opts.scales.y, min:600}}}
+  });
+}
+
+/* =================================================================
+   ■ PANEL 2 – 역별 상세 조회
+================================================================= */
+let curSort='passengers', curAsc=false;
+
+function applyFilter() {
+  const q = document.getElementById('srchInput').value.trim();
+  const ln = document.getElementById('srchLine').value;
+  curSort = document.getElementById('srchSort').value;
+  renderStationTable(q, ln);
+}
+function toggleSort(key) {
+  if(curSort===key) curAsc=!curAsc; else {curSort=key; curAsc=false;}
+  applyFilter();
+}
+
+function renderStationTable(q='', ln='') {
+  let rows = stationRows.filter(d =>
+    (!q || d.name.includes(q)) && (!ln || d.line===ln)
+  );
+  rows.sort((a,b) => {
+    const va=a[curSort], vb=b[curSort];
+    if(typeof va==='string') return curAsc?va.localeCompare(vb,'ko'):vb.localeCompare(va,'ko');
+    return curAsc?va-vb:vb-va;
+  });
+  document.getElementById('srchCount').textContent = rows.length;
+  document.getElementById('stTbody').innerHTML = rows.map(d => {
+    const m=LINE[d.line], st=pmStatus(d.pm10);
+    const dj = JSON.stringify(d).replace(/"/g,'&quot;');
+    return `
+      <tr>
+        <td class="font-medium text-slate-200">${d.name}</td>
+        <td class="text-center">
+          <span class="lchip" style="background:${m.color};width:22px;height:22px;font-size:10px;">${m.n}</span>
+        </td>
+        <td class="text-right font-mono text-amber-400">${fmt(d.passengers)}</td>
+        <td class="text-right font-mono font-bold" style="color:${st.color}">${d.pm10}</td>
+        <td class="text-right font-mono text-purple-400">${d.pm25}</td>
+        <td class="text-right font-mono text-emerald-400">${fmt(d.co2)}</td>
+        <td class="text-center"><span class="bdg ${st.cls}">${st.label}</span></td>
+        <td class="text-center">
+          <button onclick='openDetail(${dj})'
+            class="text-xs text-blue-400 hover:text-blue-200 border border-blue-900 hover:border-blue-500 px-2 py-0.5 rounded-lg transition-all">
+            상세 <i class="fa-solid fa-chevron-right text-[9px] ml-0.5"></i>
+          </button>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+function openDetail(d) {
+  const m=LINE[d.line], stPM=pmStatus(d.pm10), stCO2=co2Status(d.co2);
+  const el = document.getElementById('stDetail');
+  el.classList.remove('hidden');
+  document.getElementById('dtChip').textContent = m.n;
+  document.getElementById('dtChip').style.background = m.color;
+  document.getElementById('dtName').textContent = d.name+'역';
+  document.getElementById('dtLine').textContent = `${d.line} · 역ID 기준 집계`;
+  document.getElementById('dtPass').textContent = fmt(d.passengers)+'명';
+  document.getElementById('dtPM10').textContent = d.pm10;
+  document.getElementById('dtPM25').textContent = d.pm25;
+  document.getElementById('dtCO2').textContent  = fmt(d.co2);
+  document.getElementById('dtPM10Lbl').textContent = stPM.label;
+  document.getElementById('dtCO2Lbl').textContent  = stCO2.label;
+  const pm10Pct = Math.min(d.pm10/150*100,100);
+  const co2Pct  = Math.min((d.co2-400)/1600*100,100);
+  const barC = d.pm10>80?'#EF4444':d.pm10>50?'#FBBF24':d.pm10>30?'#34D399':'#60A5FA';
+  document.getElementById('dtPM10Bar').style.cssText = `width:${pm10Pct}%;background:${barC};`;
+  document.getElementById('dtCO2Bar').style.width = co2Pct+'%';
+  el.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function closeDetail() {
+  document.getElementById('stDetail').classList.add('hidden');
+}
+
+/* =================================================================
+   ■ PANEL 3 – 혼잡도 Top 20
+================================================================= */
+let top20ChartInst = null;
+
+function renderTop20() {
+  // 승하차 인원 상위 20개 역 추출
+  const top20 = [...stationRows].sort((a,b)=>b.passengers-a.passengers).slice(0,20);
+  // PM10 내림차순으로 차트 정렬
+  const sorted = [...top20].sort((a,b)=>b.pm10-a.pm10);
+
+  const labels = sorted.map(d=>d.name);
+  const colors = sorted.map(d => {
+    const st=pmStatus(d.pm10);
+    return st.color+'CC';
+  });
+
+  if(top20ChartInst) top20ChartInst.destroy();
+
+  top20ChartInst = new Chart(document.getElementById('chartTop20'),{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        { label:'PM10 (㎍/㎥)', data:sorted.map(d=>d.pm10),
+          backgroundColor:colors, borderColor:colors.map(c=>c.slice(0,7)),
+          borderWidth:2, borderRadius:5 },
+        { label:'PM2.5 (㎍/㎥)', data:sorted.map(d=>d.pm25),
+          backgroundColor:'rgba(167,139,250,.55)', borderColor:'#A78BFA',
+          borderWidth:2, borderRadius:5 }
+      ]
+    },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{labels:{color:'#94A3B8',font:{size:11}}},
+        tooltip:{
+          backgroundColor:'#1E293B',titleColor:'#F1F5F9',bodyColor:'#CBD5E1',
+          borderColor:'#334155',borderWidth:1,
+          callbacks:{
+            afterBody(items){
+              const i=items[0].dataIndex;
+              return `승하차: ${fmt(sorted[i].passengers)}명  |  CO₂: ${sorted[i].co2}ppm`;
+            }
+          }
+        }
+      },
+      scales:{
+        x:{
+          ticks:{color:'#64748B',font:{size:11}},
+          grid:{color:'#1E293B'},
+          title:{display:true,text:'농도 (㎍/㎥)',color:'#475569',font:{size:11}}
+        },
+        y:{ticks:{color:'#E2E8F0',font:{size:12}},grid:{color:'#1E293B'}}
+      }
+    }
+  });
+
+  // WHO 기준선 수동 플러그인 대신 afterDraw로 그리기
+  const whoPlugin = {
+    id:'whoLine',
+    afterDraw(chart){
+      const {ctx,chartArea:{top,bottom},scales:{x}} = chart;
+      const xVal = x.getPixelForValue(15);
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([6,4]);
+      ctx.strokeStyle='#EF4444';
+      ctx.lineWidth=2;
+      ctx.moveTo(xVal,top); ctx.lineTo(xVal,bottom);
+      ctx.stroke();
+      ctx.font='bold 10px Noto Sans KR';
+      ctx.fillStyle='#EF4444';
+      ctx.fillText('WHO 15',xVal+4,top+14);
+      ctx.restore();
+    }
+  };
+  top20ChartInst.options.plugins = top20ChartInst.options.plugins||{};
+  Chart.register(whoPlugin);
+  top20ChartInst.update();
+
+  // 랭킹 카드
+  const mColors=['#FFD700','#C0C0C0','#CD7F32'];
+  document.getElementById('top20Cards').innerHTML = top20.map((d,i)=>{
+    const m=LINE[d.line], st=pmStatus(d.pm10);
+    const rc = i<3?mColors[i]:'#475569';
+    return `
+      <div class="glass-card rounded-xl px-4 py-3 flex items-center gap-4">
+        <span class="text-xl font-black w-7 text-center flex-shrink-0" style="color:${rc}">${i+1}</span>
+        <span class="lchip flex-shrink-0" style="background:${m.color};">${m.n}</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-slate-200 truncate">${d.name}역</p>
+          <p class="text-xs text-slate-500">${d.line} · 승하차 ${fmt(d.passengers)}명</p>
+        </div>
+        <div class="flex items-center gap-4 flex-shrink-0">
+          <div class="text-right">
+            <p class="text-xs text-slate-500">PM10</p>
+            <p class="font-bold text-sm" style="color:${st.color}">${d.pm10} ㎍/㎥</p>
+          </div>
+          <div class="text-right hidden sm:block">
+            <p class="text-xs text-slate-500">CO₂</p>
+            <p class="font-bold text-sm text-emerald-400">${fmt(d.co2)} ppm</p>
+          </div>
+          <span class="bdg ${st.cls}">${st.label}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/* =================================================================
+   ■ 탭 전환
+================================================================= */
+function switchTab(id) {
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('on'));
+  document.getElementById('panel-'+id).classList.add('on');
+  const idx = {line:0,station:1,top20:2};
+  document.querySelectorAll('.tab-btn')[idx[id]].classList.add('on');
+}
+
+/* =================================================================
+   ■ 초기화
+================================================================= */
+document.addEventListener('DOMContentLoaded',()=>{
+  initTime();
+  renderKPI();
+  renderLineCards();
+  renderLineTable();
+  renderLineCharts();
+  renderStationTable();
+  renderTop20();
+});
+</script>
+</body>
+</html>
